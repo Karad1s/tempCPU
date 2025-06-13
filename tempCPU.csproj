@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>App.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/Icon.ico</ApplicationIcon>
+
+
+
+  </PropertyGroup>
+  <Target Name="KillRunningInstance" BeforeTargets="BeforeBuild">
+  <Exec Command="taskkill /F /IM tempCPU.exe || exit 0" ContinueOnError="true" />
+  </Target>
+
+
+  <ItemGroup>
+
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
+  </ItemGroup>
+
+</Project>
