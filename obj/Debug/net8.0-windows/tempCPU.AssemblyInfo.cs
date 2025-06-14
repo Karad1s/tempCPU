@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("tempCPU")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+43a9078430f2359248ab092ae75fbf3358c7a897")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0c40c2b2f6a5aba687bdaf91de59302c66b629a7")]
 [assembly: System.Reflection.AssemblyProductAttribute("tempCPU")]
 [assembly: System.Reflection.AssemblyTitleAttribute("tempCPU")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
