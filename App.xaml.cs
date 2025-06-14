@@ -1,26 +1,26 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using Forms = System.Windows.Forms;
 using WpfApp = System.Windows.Application;
 using Microsoft.Win32;
-using LibreHardwareMonitor.Hardware;
 
 namespace tempCPU
 {
     public partial class App : WpfApp
     {
         private Forms.NotifyIcon _trayIcon = null!;
-        private Computer _computer = null!;
+        private LibreHardwareMonitor.Hardware.Computer _computer = null!;
         private Window? _invisibleWindow;
 
         private const int HOTKEY_ID = 9000;
         private const uint MOD_NOREPEAT = 0x4000;
         private const uint MOD_NONE = 0x0000;
-        private const uint VK_ADD = 0x6B;
+        private uint _hotKey = 0x6B; // VK_ADD по умолчанию
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -30,9 +30,12 @@ namespace tempCPU
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            // Проверка прав админа
+            Logger.Info("Приложение запускается...");
+
+            // Проверка прав администратора
             if (!IsRunAsAdmin())
             {
+                Logger.Info("Нет прав администратора. Перезапускаюсь с правами администратора...");
                 RelaunchAsAdmin();
                 Shutdown();
                 return;
@@ -40,24 +43,52 @@ namespace tempCPU
 
             base.OnStartup(e);
 
-            // Инициализация LibreHardwareMonitor
-            _computer = new Computer { IsCpuEnabled = true };
+            Logger.Info("Запуск LibreHardwareMonitor...");
+            _computer = new LibreHardwareMonitor.Hardware.Computer { IsCpuEnabled = true };
             _computer.Open();
 
-            // Трей-иконка + контекстное меню
+            Logger.Info("Инициализация трея...");
             _trayIcon = new Forms.NotifyIcon
             {
-                Icon = SystemIcons.Information,
+                Icon = SystemIcons.Information, // безопасная иконка
                 Visible = true,
                 Text = "CPU Temp"
             };
-            _trayIcon.ContextMenuStrip = new Forms.ContextMenuStrip();
-            _trayIcon.ContextMenuStrip.Items.Add("Показать температуру", null, (s, _) => ShowCpuTemperature());
-            _trayIcon.ContextMenuStrip.Items.Add("Выход", null, OnExitClicked);
-            _trayIcon.Icon = new System.Drawing.Icon("assets/Icon.ico");
 
-            // Невидимое окно — нужно для HotKey
-            var window = new Window
+            // Безопасная загрузка иконки
+            try
+            {
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "Icon.ico");
+                Logger.Info($"Загрузка иконки: {iconPath}");
+                if (File.Exists(iconPath))
+                {
+                    _trayIcon.Icon = new Icon(iconPath);
+                    Logger.Info("Иконка успешно загружена.");
+                }
+                else
+                {
+                    Logger.Warning("Иконка не найдена! Использую SystemIcons.Information");
+                    _trayIcon.Icon = SystemIcons.Information;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Ошибка при загрузке иконки: {ex.Message}");
+                _trayIcon.Icon = SystemIcons.Information;
+            }
+
+            // Контекстное меню
+            var menu = new Forms.ContextMenuStrip();
+            menu.Items.Add("Показать температуру", null, (s, _) => ShowCpuTemperature());
+            menu.Items.Add("Настройка клавиши", null, (s, _) => OpenHotKeyConfig());
+            menu.Items.Add("Выход", null, OnExitClicked);
+            _trayIcon.ContextMenuStrip = menu;
+
+            _trayIcon.Visible = true;
+            Logger.Info("Трей-иконка готова и видима.");
+
+            // Невидимое окно для HotKey
+            _invisibleWindow = new Window
             {
                 Width = 0,
                 Height = 0,
@@ -65,33 +96,67 @@ namespace tempCPU
                 WindowStyle = WindowStyle.None,
                 Visibility = Visibility.Hidden
             };
-            window.SourceInitialized += (s, args) =>
+            _invisibleWindow.SourceInitialized += (s, args) =>
             {
-                var helper = new WindowInteropHelper(window);
-                RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, VK_ADD);
+                var helper = new WindowInteropHelper(_invisibleWindow);
+                Logger.Info($"Регистрация HotKey VK={_hotKey}");
+                RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, _hotKey);
                 HwndSource source = HwndSource.FromHwnd(helper.Handle);
                 source.AddHook(HwndHook);
             };
+            _invisibleWindow.Show();
+            _invisibleWindow.Hide();
+            
 
-            // Таймер для проверки перегрева
+            Logger.Info("Настройка таймера мониторинга температуры...");
             var timer = new Forms.Timer();
             timer.Interval = 5000; // каждые 5 сек
-            timer.Tick += (s, _) =>
+            timer.Tick += (s3, _) =>
             {
                 double temp = GetCpuTemperature();
                 if (temp >= 90)
                 {
-                    _trayIcon.ShowBalloonTip(5000, "Внимание", $"ЦП Нагрелся! {temp:F1}°C", Forms.ToolTipIcon.Warning);
+                    _trayIcon.ShowBalloonTip(5000, "Внимание", $"ЦП нагрелся: {temp:F1}°C", Forms.ToolTipIcon.Warning);
+                    Logger.Warning($"Обнаружен перегрев: {temp:F1}°C");
                 }
             };
             timer.Start();
 
-            window.Hide();
-            _invisibleWindow = window;
-
-            // Автозагрузка
+            Logger.Info("Добавление автозагрузки в реестр...");
             AddToStartup();
+
+            Logger.Info("Приложение полностью запущено.");
         }
+
+        private void OpenHotKeyConfig()
+        {
+            Logger.Info("Открытие окна настройки горячей клавиши...");
+
+            var configWindow = new HotKeyConfigWindow(UpdateHotKey);
+
+            configWindow.Owner = Current.MainWindow; // если есть главное окно
+            configWindow.ShowDialog();
+        }
+
+        private void UpdateHotKey(uint newKey)
+        {
+            Logger.Info($"Обновление горячей клавиши: VK = {newKey}");
+
+            if (_invisibleWindow != null)
+            {
+                var helper = new WindowInteropHelper(_invisibleWindow);
+
+                // Разрегистрируем старый
+                UnregisterHotKey(helper.Handle, HOTKEY_ID);
+
+                // Регистрируем новый
+                RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, newKey);
+
+                // Сохраняем в реестр
+                SaveHotKeyToRegistry(newKey);
+            }
+        }
+
 
         private bool IsRunAsAdmin()
         {
@@ -103,17 +168,20 @@ namespace tempCPU
         private void RelaunchAsAdmin()
         {
             var exeName = Process.GetCurrentProcess().MainModule?.FileName;
-            var startInfo = new ProcessStartInfo(exeName!)
-            {
-                Verb = "runas"
-            };
+            if (string.IsNullOrWhiteSpace(exeName)) return;
+
             try
             {
-                Process.Start(startInfo);
+                Process.Start(new ProcessStartInfo(exeName)
+                {
+                    Verb = "runas"
+                });
+                Logger.Info("Перезапуск с правами администратора запущен.");
             }
             catch (Exception ex)
             {
-                _trayIcon.ShowBalloonTip(5000, "Ошибка", "Не удалось перезапустить программу в качестве администратора: " + ex.Message, Forms.ToolTipIcon.Error);
+                Logger.Error("Не удалось перезапустить программу в качестве администратора: " + ex.Message);
+                _trayIcon.ShowBalloonTip(5000, "Ошибка", "Не удалось запустить с правами администратора.", Forms.ToolTipIcon.Error);
             }
         }
 
@@ -126,6 +194,7 @@ namespace tempCPU
                 int id = wParam.ToInt32();
                 if (id == HOTKEY_ID)
                 {
+                    Logger.Info("Глобальный HotKey сработал!");
                     ShowCpuTemperature();
                     handled = true;
                 }
@@ -134,11 +203,12 @@ namespace tempCPU
             return IntPtr.Zero;
         }
 
+
         private void ShowCpuTemperature()
         {
             float temp = GetCpuTemperature();
+            Logger.Info($"Текущая температура ЦП: {temp:F1} °C");
             _trayIcon.ShowBalloonTip(3000, "Температура CPU", $"{temp:F1} °C", Forms.ToolTipIcon.Info);
-
         }
 
         private float GetCpuTemperature()
@@ -165,8 +235,30 @@ namespace tempCPU
             return count > 0 ? sum / count : 0;
         }
 
+        private void ShowHotKeyConfigWindow()
+        {
+            Logger.Info("Открываю окно настройки горячей клавиши...");
+            var hotkeyWindow = new HotKeyConfigWindow(SetNewHotKey);
+            hotkeyWindow.Show();
+            Logger.Info("Окно настройки горячей клавиши открыто.");
+        }
+
+        private void SetNewHotKey(uint newVk)
+        {
+            Logger.Info($"Новая горячая клавиша: {newVk}");
+            // Дерегистрируем старую:
+            var helper = new WindowInteropHelper(_invisibleWindow);
+            UnregisterHotKey(helper.Handle, HOTKEY_ID);
+
+            // Регистрируем новую:
+            RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, newVk);
+
+            Logger.Info($"Горячая клавиша зарегистрирована: VK={newVk}");
+        }
+
         private void OnExitClicked(object? sender, EventArgs e)
         {
+            Logger.Info("Выход по команде из трея...");
             Shutdown();
         }
 
@@ -176,25 +268,44 @@ namespace tempCPU
             {
                 var helper = new WindowInteropHelper(_invisibleWindow);
                 UnregisterHotKey(helper.Handle, HOTKEY_ID);
+                Logger.Info("HotKey успешно отписан.");
             }
 
             _computer.Close();
             _trayIcon.Visible = false;
 
+            Logger.Info("Приложение завершено.");
             base.OnExit(e);
         }
+
+        private void SaveHotKeyToRegistry(uint vk)
+        {
+            try
+            {
+                using var rk = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\CpuTempTrayWpf");
+                rk?.SetValue("HotKey", vk, RegistryValueKind.DWord);
+                Logger.Info($"Горячая клавиша сохранена в реестр: VK = {vk}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Не удалось сохранить хоткей в реестр: {ex.Message}");
+            }
+        }
+
 
         private void AddToStartup()
         {
             try
             {
                 string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "";
-                RegistryKey rk = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true)!;
+                RegistryKey rk = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
                 rk.SetValue("CpuTempTrayWpf", exePath);
+                Logger.Info("Добавлен в автозагрузку.");
             }
             catch (Exception ex)
             {
-                _trayIcon.ShowBalloonTip(5000, "Ошибка", "Не удалось запустить: " + ex.Message, Forms.ToolTipIcon.Error);
+                Logger.Error($"Не удалось добавить в автозагрузку: {ex.Message}");
+                _trayIcon.ShowBalloonTip(5000, "Ошибка", "Не удалось добавить в автозагрузку.", Forms.ToolTipIcon.Error);
             }
         }
     }
