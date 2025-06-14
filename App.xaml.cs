@@ -20,7 +20,8 @@ namespace tempCPU
         private const int HOTKEY_ID = 9000;
         private const uint MOD_NOREPEAT = 0x4000;
         private const uint MOD_NONE = 0x0000;
-        private uint _hotKey = 0x6B; // VK_ADD по умолчанию
+        private uint _hotKey;
+
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -40,6 +41,9 @@ namespace tempCPU
                 Shutdown();
                 return;
             }
+
+            _hotKey = LoadHotKeyFromRegistry();
+            Logger.Info($"Хоткей при старте: VK = {_hotKey}");
 
             base.OnStartup(e);
 
@@ -238,23 +242,12 @@ namespace tempCPU
         private void ShowHotKeyConfigWindow()
         {
             Logger.Info("Открываю окно настройки горячей клавиши...");
-            var hotkeyWindow = new HotKeyConfigWindow(SetNewHotKey);
+            var hotkeyWindow = new HotKeyConfigWindow(UpdateHotKey); // ⬅️ Только этот метод
             hotkeyWindow.Show();
             Logger.Info("Окно настройки горячей клавиши открыто.");
         }
 
-        private void SetNewHotKey(uint newVk)
-        {
-            Logger.Info($"Новая горячая клавиша: {newVk}");
-            // Дерегистрируем старую:
-            var helper = new WindowInteropHelper(_invisibleWindow);
-            UnregisterHotKey(helper.Handle, HOTKEY_ID);
-
-            // Регистрируем новую:
-            RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, newVk);
-
-            Logger.Info($"Горячая клавиша зарегистрирована: VK={newVk}");
-        }
+        
 
         private void OnExitClicked(object? sender, EventArgs e)
         {
@@ -284,12 +277,34 @@ namespace tempCPU
             {
                 using var rk = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\CpuTempTrayWpf");
                 rk?.SetValue("HotKey", vk, RegistryValueKind.DWord);
-                Logger.Info($"Горячая клавиша сохранена в реестр: VK = {vk}");
+                _hotKey = vk; // 🗝️ обновляем локально тоже!
+                Logger.Info($"Горячая клавиша сохранена и обновлена локально: VK = {vk}");
             }
             catch (Exception ex)
             {
                 Logger.Error($"Не удалось сохранить хоткей в реестр: {ex.Message}");
             }
+        }
+
+        private uint LoadHotKeyFromRegistry()
+        {
+            try
+            {
+                using var rk = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\CpuTempTrayWpf");
+                object? value = rk?.GetValue("HotKey");
+                if (value != null && uint.TryParse(value.ToString(), out uint vk))
+                {
+                    Logger.Info($"Загружен хоткей из реестра: VK = {vk}");
+                    return vk;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Не удалось загрузить хоткей из реестра: {ex.Message}");
+            }
+
+            Logger.Info("В реестре не найден хоткей, используется дефолт VK_ADD (0x6B).");
+            return 0x6B; // дефолт VK_ADD
         }
 
 
