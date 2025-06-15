@@ -8,6 +8,7 @@ using System.Windows.Interop;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 using WpfApp = System.Windows.Application;
+using System.Threading;
 
 namespace tempCPU
 {
@@ -26,6 +27,9 @@ namespace tempCPU
         private HwndSource _source = null!;
         private bool _hotKeyRegistered = false;
 
+        private Forms.ToolStripMenuItem _showTempMenuItem = null!;
+
+
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -33,10 +37,38 @@ namespace tempCPU
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        private Mutex? _mutex;
+        private EventWaitHandle? _waitHandle;
+        private const string MutexName = "CPU_TEMP_TRAY_MUTEX";
+        private const string EventName = "CPU_TEMP_TRAY_EVENT";
+
         protected override void OnStartup(StartupEventArgs e)
         {
             Logger.Info("=== Запуск приложения ===");
+            _mutex = new Mutex(true, MutexName, out bool isNewInstance);
 
+            if (!isNewInstance)
+            {
+                using (var waitHandle = EventWaitHandle.OpenExisting(EventName))
+                    {
+                        waitHandle.Set();
+                    }
+
+                Shutdown();
+                return;
+            }
+                _mutex.WaitOne();
+
+            // если первый экземпляр:
+            // _waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset, EventName);
+            // Task.Run(() =>
+            // {
+            //     while (_waitHandle.WaitOne())
+            //     {
+            //         Logger.Info("Получен сигнал от нового экземпляра — завершаюсь...");
+            //         Current.Dispatcher.Invoke(Shutdown);
+            //     }
+            // });
             // Проверка прав администратора
             if (!IsRunAsAdmin())
             {
@@ -85,7 +117,12 @@ namespace tempCPU
             };
 
             var menu = new Forms.ContextMenuStrip();
-            menu.Items.Add("Показать температуру", null, (_, __) => ShowCpuTemperature());
+
+            _showTempMenuItem = new Forms.ToolStripMenuItem();
+            UpdateShowTempMenuItemText();  // !!! тут пишем VK или норм имя
+            _showTempMenuItem.Click += (_, __) => ShowCpuTemperature();
+
+            menu.Items.Add($"Показать температуру ({GetHotKeyName()})", null, (_, __) => ShowCpuTemperature());
             menu.Items.Add("Настроить клавишу", null, (_, __) => OpenHotKeyConfig());
             menu.Items.Add("Выход", null, OnExitClicked);
 
@@ -119,6 +156,16 @@ namespace tempCPU
             _invisibleWindow.Hide();
         }
 
+        private void UpdateShowTempMenuItemText()
+        {
+            _showTempMenuItem.Text = $"Показать температуру ({FormatHotKey(_hotKey)})";
+        }
+
+        private string FormatHotKey(uint vk)
+        {
+            // Можно просто вернуть VK-код или красивое имя
+            return ((Forms.Keys)vk).ToString();
+        }
         private void RegisterGlobalHotKey(uint vk)
         {
             if (_hotKeyRegistered)
@@ -179,10 +226,48 @@ namespace tempCPU
         /// <summary>
         /// Обновляет HotKey и сохраняет его в реестр
         /// </summary>
+
+        private void ReRegisterHotKey()
+        {
+            if (_invisibleWindow == null) return;
+
+            var helper = new WindowInteropHelper(_invisibleWindow);
+            UnregisterHotKey(helper.Handle, HOTKEY_ID);
+            if (!RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, _hotKey))
+            {
+                Logger.Error($"Не удалось зарегистрировать HotKey VK = {_hotKey}");
+            }
+            else
+            {
+                Logger.Info($"HotKey VK = {_hotKey} зарегистрирован повторно");
+            }
+        }
+
         private void UpdateHotKey(uint newVk)
         {
-            RegisterGlobalHotKey(newVk);
-            SaveHotKeyToRegistry(newVk);
+            if (_invisibleWindow != null)
+            {
+                var helper = new WindowInteropHelper(_invisibleWindow);
+                UnregisterHotKey(helper.Handle, HOTKEY_ID);
+
+                if (RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, newVk))
+                {
+                    Logger.Info($"HotKey обновлен: VK = {newVk}");
+                    SaveHotKeyToRegistry(newVk);
+                    _hotKey = newVk;
+                    ReRegisterHotKey();
+                    UpdateShowTempMenuItemText();
+                }
+                else
+                {
+                    Logger.Error($"Не удалось зарегистрировать новый HotKey VK = {newVk}");
+                }
+            }
+        }
+
+        private string GetHotKeyName()
+        {
+            return ((Keys)_hotKey).ToString();
         }
 
 
