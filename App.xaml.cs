@@ -21,6 +21,11 @@ namespace tempCPU
         private LibreHardwareMonitor.Hardware.Computer _computer = null!;
         private Window _invisibleWindow = null!;
         private uint _hotKey;
+        private bool _hotKeyPressed = false;
+        private WindowInteropHelper _helper = null!;
+        private HwndSource _source = null!;
+        private bool _hotKeyRegistered = false;
+
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -103,24 +108,38 @@ namespace tempCPU
 
             _invisibleWindow.SourceInitialized += (_, __) =>
             {
-                var helper = new WindowInteropHelper(_invisibleWindow);
+                _helper = new WindowInteropHelper(_invisibleWindow);
+                _source = HwndSource.FromHwnd(_helper.Handle);
+                _source.AddHook(HwndHook);
 
-                if (!RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, _hotKey))
-                {
-                    Logger.Error($"Не удалось зарегистрировать HotKey VK = {_hotKey}");
-                }
-                else
-                {
-                    Logger.Info($"HotKey VK = {_hotKey} успешно зарегистрирован.");
-                }
-
-                HwndSource source = HwndSource.FromHwnd(helper.Handle);
-                source.AddHook(HwndHook);
+                RegisterGlobalHotKey(_hotKey);
             };
 
             _invisibleWindow.Show();
             _invisibleWindow.Hide();
         }
+
+        private void RegisterGlobalHotKey(uint vk)
+        {
+            if (_hotKeyRegistered)
+            {
+                UnregisterHotKey(_helper.Handle, HOTKEY_ID);
+                Logger.Info($"HotKey VK = {_hotKey} отписан перед повторной регистрацией");
+                _hotKeyRegistered = false;
+            }
+
+            if (RegisterHotKey(_helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, vk))
+            {
+                _hotKey = vk;
+                _hotKeyRegistered = true;
+                Logger.Info($"HotKey VK = {_hotKey} успешно зарегистрирован");
+            }
+            else
+            {
+                Logger.Error($"Не удалось зарегистрировать HotKey VK = {vk}");
+            }
+        }
+
 
         /// <summary>
         /// Перехватчик сообщений окна для обработки HotKey
@@ -130,9 +149,18 @@ namespace tempCPU
             const int WM_HOTKEY = 0x0312;
             if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
             {
+                if (_hotKeyPressed)
+                {
+                    Logger.Info("Дубликат HotKey проигнорирован");
+                    return IntPtr.Zero;
+                }
+
+                _hotKeyPressed = true;
                 Logger.Info("HotKey нажат — показываю температуру CPU");
                 ShowCpuTemperature();
                 handled = true;
+
+                Task.Delay(200).ContinueWith(_ => _hotKeyPressed = false);
             }
             return IntPtr.Zero;
         }
@@ -153,22 +181,10 @@ namespace tempCPU
         /// </summary>
         private void UpdateHotKey(uint newVk)
         {
-            if (_invisibleWindow != null)
-            {
-                var helper = new WindowInteropHelper(_invisibleWindow);
-                UnregisterHotKey(helper.Handle, HOTKEY_ID);
-
-                if (RegisterHotKey(helper.Handle, HOTKEY_ID, MOD_NOREPEAT | MOD_NONE, newVk))
-                {
-                    Logger.Info($"HotKey обновлен: VK = {newVk}");
-                    SaveHotKeyToRegistry(newVk);
-                }
-                else
-                {
-                    Logger.Error($"Не удалось зарегистрировать новый HotKey VK = {newVk}");
-                }
-            }
+            RegisterGlobalHotKey(newVk);
+            SaveHotKeyToRegistry(newVk);
         }
+
 
         #endregion
 
@@ -351,11 +367,10 @@ namespace tempCPU
 
         protected override void OnExit(ExitEventArgs e)
         {
-            if (_invisibleWindow != null)
+            if (_hotKeyRegistered)
             {
-                var helper = new WindowInteropHelper(_invisibleWindow);
-                UnregisterHotKey(helper.Handle, HOTKEY_ID);
-                Logger.Info("HotKey успешно отписан");
+                UnregisterHotKey(_helper.Handle, HOTKEY_ID);
+                Logger.Info("HotKey успешно отписан при выходе");
             }
 
             _computer.Close();
