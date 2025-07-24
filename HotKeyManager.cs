@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Interop;
 using WpfApp = System.Windows.Application;
 using Forms = System.Windows.Forms;
+using LibreHardwareMonitor.Hardware;
 
 namespace tempCPU
 {
@@ -30,7 +31,7 @@ namespace tempCPU
         public HotKeyManager(Action onHotKeyChanged)
         {
             _onHotKeyChanged = onHotKeyChanged;
-            _computer = new LibreHardwareMonitor.Hardware.Computer { IsCpuEnabled = true };
+            _computer = new LibreHardwareMonitor.Hardware.Computer { IsCpuEnabled = true, IsGpuEnabled = true };
             _computer.Open();
         }
 
@@ -74,7 +75,7 @@ namespace tempCPU
                 Logger.Info("HotKey нажат");
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    ((App)WpfApp.Current).TrayManager.ShowCpuTemperature();
+                    ((App)WpfApp.Current).TrayManager.ShowCpuAndGpuTemperature();
 ;
                 });
                 handled = true;
@@ -113,8 +114,8 @@ namespace tempCPU
 
         public float GetCpuTemperature()
         {
-            float sum = 0;
-            int count = 0;
+            float maxTemp = 0;
+
             foreach (var hw in _computer.Hardware)
             {
                 if (hw.HardwareType == LibreHardwareMonitor.Hardware.HardwareType.Cpu)
@@ -124,13 +125,37 @@ namespace tempCPU
                     {
                         if (sensor.SensorType == LibreHardwareMonitor.Hardware.SensorType.Temperature && sensor.Value.HasValue)
                         {
-                            sum += sensor.Value.Value;
-                            count++;
+                            if (sensor.Value.Value > maxTemp)
+                                maxTemp = sensor.Value.Value;
                         }
                     }
                 }
             }
-            return count > 0 ? sum / count : 0;
+            return maxTemp;
+        }
+
+        public float GetGpuTemperature()
+        {
+            float maxTemp = 0;
+
+            foreach (var hardware in _computer.Hardware)
+            {
+                if (hardware.HardwareType == HardwareType.GpuNvidia || hardware.HardwareType == HardwareType.GpuAmd)
+                {
+                    hardware.Update();
+
+                    foreach (var sensor in hardware.Sensors)
+                    {
+                        if (sensor.SensorType == LibreHardwareMonitor.Hardware.SensorType.Temperature && sensor.Value.HasValue)
+                        {
+                            if (sensor.Value.Value > maxTemp)
+                                maxTemp = sensor.Value.Value;
+                        }
+                    }
+                }
+            }
+
+            return maxTemp;
         }
 
         public void Dispose()

@@ -21,11 +21,18 @@ namespace tempCPU
 
         private void CheckOverheat()
         {
-            float temp = ((App)wpfApp.Current).HotKeyManager.GetCpuTemperature();
-            if (temp >= 90)
+            float CPUtemp = ((App)wpfApp.Current).HotKeyManager.GetCpuTemperature();
+            float GPUTemp = ((App)wpfApp.Current).HotKeyManager.GetCpuTemperature();
+            if (CPUtemp >= 90)
             {
-                Logger.Warning($"Обнаружен перегрев: {temp:F1}°C");
-                _trayManager.ShowCpuTemperature();
+                Logger.Warning($"Обнаружен перегрев: {CPUtemp:F1}°C");
+                _trayManager.ShowCpuAndGpuTemperature();
+            }
+
+            if (GPUTemp >= 85)
+            {
+                Logger.Warning($"Перегрев GPU: {GPUTemp:F1}°C");
+                _trayManager.ShowCpuAndGpuTemperature();
             }
         }
     }

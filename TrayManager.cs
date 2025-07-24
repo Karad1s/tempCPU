@@ -19,7 +19,7 @@ namespace tempCPU
             _showTemperatureItem = new Forms.ToolStripMenuItem();
             UpdateShowTemperatureItemText();
 
-            _showTemperatureItem.Click += (s, e) => ShowCpuTemperature();
+            _showTemperatureItem.Click += (s, e) => ShowCpuAndGpuTemperature();
         }
 
         
@@ -36,7 +36,7 @@ namespace tempCPU
             var menu = new Forms.ContextMenuStrip();
 
             _showTempMenuItem = new Forms.ToolStripMenuItem($"Показать температуру ({_hotKeyManager.GetHotKeyName()})");
-            _showTempMenuItem.Click += (_, __) => ShowCpuTemperature();
+            _showTempMenuItem.Click += (_, __) => ShowCpuAndGpuTemperature();
 
             menu.Items.Add(_showTempMenuItem);
             menu.Items.Add("Настроить клавишу", null, (_, __) => _hotKeyManager.OpenHotKeyConfig());
@@ -46,18 +46,37 @@ namespace tempCPU
         }
 
         public void UpdateShowTemperatureItemText()
-            {
-                _showTemperatureItem.Text = $"Показать температуру ({_hotKeyManager.GetHotKeyName()})";
-            }
-
-        public void ShowCpuTemperature()
         {
-            float temp = _hotKeyManager.GetCpuTemperature();
-            Logger.Info($"Текущая температура ЦП: {temp:F1} °C");
-            _trayIcon.ShowBalloonTip(3000, "Температура CPU", $"{temp:F1} °C", Forms.ToolTipIcon.Info);
+            _showTemperatureItem.Text = $"Показать температуру CPU/GPU ({_hotKeyManager.GetHotKeyName()})";
         }
 
-         public void OnHotKeyChanged() 
+
+        // public void ShowCpuTemperature()
+        // {
+        //     float temp = _hotKeyManager.GetCpuTemperature();
+        //     Logger.Info($"Текущая температура ЦП: {temp:F1} °C");
+        //     _trayIcon.ShowBalloonTip(3000, "Температура CPU", $"{temp:F1} °C", Forms.ToolTipIcon.Info);
+        // }
+
+        // public void ShowGpuTemperature()
+        // {
+        //     float gpuTemp = _hotKeyManager.GetGpuTemperature();
+        //     Logger.Info($"Текущая температура GPU: {gpuTemp:F1} °C");
+        //     _trayIcon.ShowBalloonTip(3000, "Температура GPU", $"{gpuTemp:F1} °C", Forms.ToolTipIcon.Info);
+        // }
+
+        public void ShowCpuAndGpuTemperature()
+        {
+            float cpuTemp = _hotKeyManager.GetCpuTemperature();
+            float gpuTemp = _hotKeyManager.GetGpuTemperature();
+
+            string message = $"CPU: {cpuTemp:F1} °C | GPU: {gpuTemp:F1} °C";
+            Logger.Info($"Температуры — {message}");
+
+            _trayIcon.ShowBalloonTip(3000, "Температура системы", message, Forms.ToolTipIcon.Info);
+        }
+
+         public void OnHotKeyChanged()
         {
             UpdateShowTemperatureItemText();
         }
