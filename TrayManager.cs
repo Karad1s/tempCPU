@@ -22,7 +22,7 @@ namespace tempCPU
             _showTemperatureItem.Click += (s, e) => ShowCpuAndGpuTemperature();
         }
 
-        
+
 
         public void Initialize()
         {
@@ -42,7 +42,8 @@ namespace tempCPU
             menu.Items.Add("Настроить клавишу", null, (_, __) => _hotKeyManager.OpenHotKeyConfig());
             menu.Items.Add("Выход", null, (_, __) => System.Windows.Application.Current.Shutdown());
 
-            _trayIcon.ContextMenuStrip = menu;
+            // _trayIcon.ContextMenuStrip = menu;
+            _trayIcon.MouseClick += TrayIcon_MouseClick;
         }
 
         public void UpdateShowTemperatureItemText()
@@ -73,10 +74,11 @@ namespace tempCPU
             string message = $"CPU: {cpuTemp:F1} °C | GPU: {gpuTemp:F1} °C";
             Logger.Info($"Температуры — {message}");
 
-            _trayIcon.ShowBalloonTip(3000, "Температура системы", message, Forms.ToolTipIcon.Info);
+            ShowCustomNotification($"CPU: {cpuTemp:F1} °C | GPU: {gpuTemp:F1} °C");
+
         }
 
-         public void OnHotKeyChanged()
+        public void OnHotKeyChanged()
         {
             UpdateShowTemperatureItemText();
         }
@@ -84,6 +86,28 @@ namespace tempCPU
         public void Dispose()
         {
             _trayIcon.Visible = false;
+        }
+
+        private void ShowCustomNotification(string message)
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                var window = new NotificationWindow(message);
+                window.Show();
+            });
+        }
+
+
+        private void TrayIcon_MouseClick(object? sender, Forms.MouseEventArgs e)
+        {
+            if (e.Button == Forms.MouseButtons.Right)
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var menuWindow = new CustomTrayMenuWindow();
+                    menuWindow.Show();
+                });
+            }
         }
     }
 }
